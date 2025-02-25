@@ -1,0 +1,8 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: 'gno-metrics'
+    static_configs:
+      - targets: ['metrics-processor:${METRICS_PORT}']
+    metrics_path: '/metrics'

@@ -1,0 +1,109 @@
+
+services:
+  gnoland:
+    build:
+      context: ./gno
+      dockerfile: Dockerfile
+    ports:
+      - "${NODE_PORT}:${NODE_PORT}"
+    environment:
+      - NODE_PORT=${NODE_PORT}
+    volumes:
+      - gno_data:/gno/home
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${NODE_PORT}"]
+      interval: 2s
+      retries: 3
+      start_period: 30s
+
+  tx-indexer:
+    build:
+      context: ./tx-indexer
+      dockerfile: Dockerfile
+    ports:
+      - "${INDEXER_PORT}:${INDEXER_PORT}"
+    environment:
+      - REMOTE_NODE=http://gnoland:${NODE_PORT}
+      - LISTEN_ADDRESS=tx-indexer:${INDEXER_PORT}
+      - DB_PATH=${DB_PATH}
+    volumes:
+      - indexer_data:/data
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://tx-indexer:${INDEXER_PORT}/graphql" ]
+      interval: 2s
+      retries: 3
+      start_period: 5s
+    depends_on:
+      gnoland:
+        condition: service_healthy
+
+  supernova:
+    build:
+      context: ./supernova
+      dockerfile: Dockerfile
+    environment:
+      - SUB_ACCOUNTS=${SUB_ACCOUNTS}
+      - TRANSACTIONS=${TRANSACTIONS}
+      - GNO_URL=http://gnoland:${NODE_PORT}
+      - MNEMONIC=${MNEMONIC}
+      - OUTPUT_FILE=${OUTPUT_FILE}
+    volumes:
+      - ./results:/app/results
+    restart:
+      on-failure:5
+    depends_on:
+      gnoland:
+        condition: service_healthy
+
+  metrics-processor:
+    build:
+      context: ./metrics-processor
+      dockerfile: Dockerfile
+#    platform: "linux/arm64"  # For Apple Silicon (ARM) - Change if running on different ARCH
+    ports:
+      - "${METRICS_PORT}:${METRICS_PORT}"
+    environment:
+      - INDEXER_URL=http://tx-indexer:${INDEXER_PORT}/graphql/query
+      - METRICS_PORT=${METRICS_PORT}
+      - PROCESSING_INTERVAL=${PROCESSING_INTERVAL}
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:${METRICS_PORT}/metrics" ]
+      interval: 2s
+      retries: 3
+      start_period: 3s
+    depends_on:
+      tx-indexer:
+        condition: service_healthy
+
+  prometheus:
+    image: prom/prometheus:${PROMETHEUS_VERSION}
+    ports:
+      - ${PROMETHEUS_PORT}:${PROMETHEUS_PORT}
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    depends_on:
+      metrics-processor:
+        condition: service_healthy
+
+  grafana:
+    image: grafana/grafana:${GRAFANA_VERSION}
+    ports:
+      - "${GRAFANA_PORT}:${GRAFANA_PORT}"
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+
+volumes:
+  gno_data:
+  indexer_data:
+  prometheus_data:
+  grafana_data:

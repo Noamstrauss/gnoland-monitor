@@ -1,0 +1,34 @@
+
+name: Lint
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: 1.23
+
+      - name: Install Dependencies
+        run: |
+          cd ./metrics-processor
+          go mod tidy
+          go mod vendor
+
+      - name: Run Lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          working-directory: ./metrics-processor
+          args:
+            --config=../.github/golangci.yaml
+          version: v1.64
